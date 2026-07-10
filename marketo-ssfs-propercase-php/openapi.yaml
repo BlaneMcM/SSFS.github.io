@@ -1,0 +1,411 @@
+openapi: 3.0.1
+
+info:
+  title: Proper Case Name Service
+  x-providerName: "Proper Case Name Demo"
+  description: >
+    Sample Marketo Self-Service Flow Step. Accepts a First or Last Name
+    field and returns it converted to proper case (handles ALL CAPS,
+    all lower case, McSurnames, MacSurnames, O'Surnames, and
+    hyphenated names) for use in email personalization and data hygiene.
+  version: "1.0.0"
+  x-schemaVersion: "1.0.0"
+  x-supportContact: "you@example.com"
+
+security:
+  - apiKey: []
+
+paths:
+  /getServiceDefinition:
+    get:
+      summary: Returns a service definition for user install
+      operationId: getServiceDefinition
+      responses:
+        "200":
+          description: Service Install Metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/serviceDefinition"
+
+  /submitAsyncAction:
+    post:
+      summary: Lead and context data is submitted through this endpoint. Results are submitted through callback.
+      operationId: submitAsyncAction
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/async"
+      # This callbacks block describes the request THIS service will make
+      # back to Marketo once processing is done -- it's how Marketo knows
+      # what shape and auth to expect on the callback it receives.
+      callbacks:
+        selfServiceFlowComplete:
+          "{$request.body#/callbackUrl}":
+            post:
+              parameters:
+                - in: header
+                  name: x-api-key
+                  description: Value of apiCallBackKey from the original invocation.
+                  required: true
+                  schema:
+                    type: string
+                - in: header
+                  name: x-callback-token
+                  description: Value of token from the original invocation.
+                  required: true
+                  schema:
+                    type: string
+              requestBody:
+                required: true
+                content:
+                  application/json:
+                    schema:
+                      $ref: "#/components/schemas/flowCallBack"
+              responses:
+                "201":
+                  description: Accepted
+                "400":
+                  description: Bad Request
+                "401":
+                  description: Unauthorized
+      responses:
+        "201":
+          description: Accepted
+        "400":
+          description: Bad Request
+        "401":
+          description: Unauthorized
+
+  /status:
+    get:
+      summary: Returns status information for the service
+      operationId: status
+      responses:
+        "200":
+          description: Status info of Service
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/serviceStatus"
+
+  /getPicklist:
+    post:
+      summary: Returns lists of choices for a flow or global parameter
+      operationId: getPicklist
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/getPicklistRequest"
+      responses:
+        "200":
+          description: Returns lists of choices for a flow or global parameter
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/picklistObject"
+
+  /brandIcon:
+    get:
+      summary: Returns an icon to represent brand in Service Providers menu
+      operationId: brandIcon
+      responses:
+        "200":
+          description: OK
+          content:
+            image/*:
+              schema:
+                type: string
+                format: binary
+
+  /serviceIcon:
+    get:
+      summary: Returns an icon to represent the service in the Smart Campaign Flow Palette
+      operationId: serviceIcon
+      responses:
+        "200":
+          description: OK
+          content:
+            image/*:
+              schema:
+                type: string
+                format: binary
+
+components:
+  securitySchemes:
+    apiKey:
+      type: apiKey
+      name: x-api-key
+      in: header
+
+  schemas:
+    async:
+      required: [campaignId, callbackUrl]
+      type: object
+      properties:
+        token:
+          description: One-time use access token for submitting callback data to Marketo
+          type: string
+        apiCallBackKey:
+          description: API key to be used in the callback header
+          type: string
+        campaignId:
+          description: ID of the campaign invoking the service
+          type: integer
+          format: int32
+        callbackUrl:
+          description: URL of the callback to submit data back to
+          type: string
+          format: uri
+        context:
+          type: object
+          properties:
+            subscription:
+              type: object
+              properties:
+                munchkinId:
+                  type: string
+        objectData:
+          type: array
+          items:
+            $ref: "#/components/schemas/objectData"
+
+    objectData:
+      required: [objectType, objectContext]
+      type: object
+      properties:
+        objectType:
+          type: string
+          example: lead
+        objectContext:
+          type: object
+          additionalProperties: true
+          description: Mapped lead field values, keyed by serviceAttribute (includes "id")
+        flowStepContext:
+          type: object
+          additionalProperties: true
+          description: Flow parameter values for this step, keyed by apiName
+
+    callbackData:
+      type: object
+      required: [leadData]
+      properties:
+        activityData:
+          type: object
+          properties:
+            success:
+              type: boolean
+            reason:
+              type: string
+            errorCode:
+              type: string
+          additionalProperties: true
+        leadData:
+          type: object
+          required: [id]
+          properties:
+            id:
+              type: integer
+              format: int64
+          additionalProperties: true
+
+    flowCallBack:
+      required: [munchkinId]
+      type: object
+      properties:
+        munchkinId:
+          type: string
+        errorCode:
+          type: string
+        errorMessage:
+          type: string
+        objectData:
+          description: List of lead and activity data to write back to Marketo
+          type: array
+          items:
+            $ref: "#/components/schemas/callbackData"
+
+    serviceDefinition:
+      description: Used to describe configuration and metadata for the service
+      type: object
+      required: [apiName, i18n, primaryAttribute, invocationPayloadDef, callbackPayloadDef]
+      properties:
+        apiName:
+          type: string
+          example: properCaseName
+        i18n:
+          type: object
+          properties:
+            en_US:
+              $ref: "#/components/schemas/serviceI18nObject"
+        primaryAttribute:
+          type: string
+          description: Must match an apiName from the flow attribute list
+        invocationPayloadDef:
+          $ref: "#/components/schemas/invocationPayloadDefObject"
+        callbackPayloadDef:
+          $ref: "#/components/schemas/callbackPayloadDefObject"
+
+    serviceI18nObject:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+
+    invocationPayloadDefObject:
+      type: object
+      properties:
+        flowAttributes:
+          type: array
+          items:
+            $ref: "#/components/schemas/invocationAttributeObject"
+        fields:
+          type: array
+          items:
+            $ref: "#/components/schemas/invocationFieldMapping"
+        userDrivenMapping:
+          type: boolean
+        programContext:
+          type: boolean
+        campaignContext:
+          type: boolean
+        triggerContext:
+          type: boolean
+        programMemberContext:
+          type: boolean
+        subscriptionContext:
+          type: boolean
+
+    callbackPayloadDefObject:
+      type: object
+      properties:
+        attributes:
+          type: array
+          items:
+            $ref: "#/components/schemas/attributeObject"
+        fields:
+          type: array
+          items:
+            $ref: "#/components/schemas/fieldMapping"
+        userDrivenMapping:
+          type: boolean
+
+    invocationAttributeObject:
+      allOf:
+        - $ref: "#/components/schemas/attributeObject"
+        - type: object
+          properties:
+            hasPicklist:
+              type: boolean
+            enforcePicklistSelect:
+              type: boolean
+
+    attributeObject:
+      type: object
+      required: [apiName, i18n, dataType]
+      properties:
+        apiName:
+          type: string
+        i18n:
+          type: object
+          required: [en_US]
+          properties:
+            en_US:
+              $ref: "#/components/schemas/attributeI18nObject"
+        dataType:
+          $ref: "#/components/schemas/fieldType"
+
+    attributeI18nObject:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        uiTooltip:
+          type: string
+
+    invocationFieldMapping:
+      allOf:
+        - $ref: "#/components/schemas/fieldMapping"
+        - type: object
+          properties:
+            required:
+              type: boolean
+
+    fieldMapping:
+      type: object
+      required: [serviceAttribute, description, dataType]
+      properties:
+        serviceAttribute:
+          type: string
+          example: FirstNameValue
+        suggestedMarketoAttribute:
+          type: string
+          example: firstName
+        description:
+          type: object
+          required: [en_US]
+          properties:
+            en_US:
+              type: string
+        dataType:
+          $ref: "#/components/schemas/fieldType"
+
+    serviceStatus:
+      type: object
+      properties:
+        info:
+          type: array
+          items:
+            type: string
+        warnings:
+          type: array
+          items:
+            type: string
+        errors:
+          type: array
+          items:
+            type: string
+
+    getPicklistRequest:
+      required: [name, type]
+      type: object
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+          enum: [flow, global, header]
+
+    picklistObject:
+      required: [choices]
+      type: object
+      properties:
+        choices:
+          type: array
+          items:
+            $ref: "#/components/schemas/picklistChoice"
+
+    picklistChoice:
+      required: [displayValue, submittedValue]
+      type: object
+      properties:
+        displayValue:
+          type: object
+          required: [en_US]
+          properties:
+            en_US:
+              type: string
+        submittedValue:
+          type: string
+
+    fieldType:
+      type: string
+      enum: [boolean, integer, date, datetime, email, float, score, string, url, text]
